@@ -8,3 +8,6 @@ dependencies = [ "pillow>=12.1.0", "pyqt6>=6.10.2",]
 
 [project.optional-dependencies]
 dev = [ "pyinstaller>=6.0.0",]
+
+[tool.setuptools]
+py-modules = ["main"]
