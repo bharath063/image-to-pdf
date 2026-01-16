@@ -199,6 +199,15 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller --clean --noconfirm ImageToPDF.spec
 
+      - name: Code sign and notarize (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Create ad-hoc signature (allows local execution)
+          codesign --force --deep --sign - dist/ImageToPDF.app
+          
+          # Verify signature
+          codesign --verify --verbose dist/ImageToPDF.app
+
       - name: Package macOS app
         if: runner.os == 'macOS'
         run: |
