@@ -12,6 +12,7 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -34,42 +35,15 @@ jobs:
           python-version: '3.12'
 
       - name: Install UV
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-        shell: bash
-        if: runner.os != 'Windows'
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
 
-      - name: Install UV (Windows)
-        run: |
-          irm https://astral.sh/uv/install.ps1 | iex
-        shell: powershell
-        if: runner.os == 'Windows'
-
-      - name: Add UV to PATH (Windows)
-        run: echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        shell: powershell
-        if: runner.os == 'Windows'
-
-      - name: Add UV to PATH (Unix)
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        shell: bash
-        if: runner.os != 'Windows'
-
-      - name: Install dependencies with UV (Unix)
-        if: runner.os != 'Windows'
+      - name: Install dependencies with UV
         run: |
           uv venv
           uv pip install -e .
           uv pip install pyinstaller
-        shell: bash
-
-      - name: Install dependencies with UV (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          uv venv
-          uv pip install -e .
-          uv pip install pyinstaller
-        shell: powershell
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -77,19 +51,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3 libgl1-mesa-glx libegl1
 
-      - name: Build with PyInstaller (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          source .venv/bin/activate
-          pyinstaller --clean --noconfirm ImageToPDF.spec
-        shell: bash
-
-      - name: Build with PyInstaller (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          .\.venv\Scripts\Activate.ps1
-          pyinstaller --clean --noconfirm ImageToPDF.spec
-        shell: powershell
+      - name: Build with PyInstaller
+        run: uv run pyinstaller --clean --noconfirm ImageToPDF.spec
 
       - name: Package macOS app
         if: runner.os == 'macOS'
