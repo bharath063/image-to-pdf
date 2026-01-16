@@ -1,0 +1,300 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  version-and-release:
+    name: Version and Release
+    runs-on: ubuntu-latest
+    # Don't run on commits made by the bot to avoid loops
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Get all history for proper versioning
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install semver tool
+        run: pip install toml semver
+
+      - name: Get current version
+        id: current
+        run: |
+          python << 'EOF'
+          import toml
+          import os
+          data = toml.load('pyproject.toml')
+          version = data['project']['version']
+          print(f"current_version={version}")
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"current_version={version}\n")
+          EOF
+
+      - name: Determine version bump
+        id: bump_type
+        run: |
+          # Get commits since last tag (or all if no tags)
+          if git describe --tags --abbrev=0 2>/dev/null; then
+            LAST_TAG=$(git describe --tags --abbrev=0)
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s")
+          else
+            COMMITS=$(git log --pretty=format:"%s")
+          fi
+          
+          echo "Recent commits:"
+          echo "$COMMITS"
+          
+          # Determine bump type from conventional commits
+          BUMP_TYPE="patch"
+          
+          if echo "$COMMITS" | grep -qiE "^(feat|feature)(\(.*\))?!:|^BREAKING CHANGE:|^[a-z]+!:"; then
+            BUMP_TYPE="major"
+          elif echo "$COMMITS" | grep -qiE "^(feat|feature)(\(.*\))?:"; then
+            BUMP_TYPE="minor"
+          elif echo "$COMMITS" | grep -qiE "^(fix|bugfix|patch)(\(.*\))?:"; then
+            BUMP_TYPE="patch"
+          fi
+          
+          echo "bump_type=${BUMP_TYPE}" >> $GITHUB_OUTPUT
+          echo "Determined bump type: ${BUMP_TYPE}"
+
+      - name: Bump version
+        id: bump
+        run: |
+          python << 'EOF'
+          import toml
+          import os
+          from semver import Version
+          
+          # Read current version
+          data = toml.load('pyproject.toml')
+          current = data['project']['version']
+          bump_type = os.environ['BUMP_TYPE']
+          
+          # Parse and bump
+          v = Version.parse(current)
+          
+          if bump_type == 'major':
+              new_v = v.bump_major()
+          elif bump_type == 'minor':
+              new_v = v.bump_minor()
+          else:  # patch
+              new_v = v.bump_patch()
+          
+          new_version = str(new_v)
+          
+          # Update pyproject.toml
+          data['project']['version'] = new_version
+          with open('pyproject.toml', 'w') as f:
+              toml.dump(data, f)
+          
+          print(f"Bumped from {current} to {new_version}")
+          
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"new_version={new_version}\n")
+              f.write(f"old_version={current}\n")
+          EOF
+        env:
+          BUMP_TYPE: ${{ steps.bump_type.outputs.bump_type }}
+
+      - name: Check if version changed
+        id: check
+        run: |
+          if [ "${{ steps.current.outputs.current_version }}" != "${{ steps.bump.outputs.new_version }}" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "Version will be bumped from ${{ steps.current.outputs.current_version }} to ${{ steps.bump.outputs.new_version }}"
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged, skipping release"
+          fi
+
+      - name: Check if tag exists
+        id: tag_check
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          if git rev-parse "v${{ steps.bump.outputs.new_version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.bump.outputs.new_version }} already exists!"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit version bump
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
+          git push
+
+      - name: Create and push tag
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          git tag -a "v${{ steps.bump.outputs.new_version }}" -m "Release v${{ steps.bump.outputs.new_version }}"
+          git push origin "v${{ steps.bump.outputs.new_version }}"
+
+  build:
+    name: Build on ${{ matrix.os }}
+    needs: version-and-release
+    if: needs.version-and-release.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_name: img-to-pdf-macos
+          - os: ubuntu-latest
+            artifact_name: img-to-pdf-linux
+          - os: windows-latest
+            artifact_name: img-to-pdf-windows
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version-and-release.outputs.new_version }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies with UV
+        run: |
+          uv venv
+          uv pip install -e .
+          uv pip install pyinstaller
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3 libgl1 libegl1
+
+      - name: Build with PyInstaller
+        run: uv run pyinstaller --clean --noconfirm ImageToPDF.spec
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-macos.zip ImageToPDF.app
+          cd ..
+
+      - name: Package Linux executable
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          tar -czf ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-linux.tar.gz ImageToPDF
+          cd ..
+
+      - name: Package Windows executable
+        if: runner.os == 'Windows'
+        run: |
+          cd dist
+          Compress-Archive -Path ImageToPDF -DestinationPath ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-windows.zip
+          cd ..
+        shell: powershell
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-macos.zip
+
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-linux.tar.gz
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-windows.zip
+
+  release:
+    name: Create GitHub Release
+    needs: [version-and-release, build]
+    if: needs.version-and-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: v${{ needs.version-and-release.outputs.new_version }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if git describe --tags --abbrev=0 HEAD^ 2>/dev/null; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^)
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version-and-release.outputs.new_version }}
+          name: Release v${{ needs.version-and-release.outputs.new_version }}
+          body: |
+            ## Changes in v${{ needs.version-and-release.outputs.new_version }}
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ## Installation
+            
+            Download the appropriate installer for your platform:
+            - **macOS**: `ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-macos.zip`
+            - **Linux**: `ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-linux.tar.gz`
+            - **Windows**: `ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-windows.zip`
+          files: |
+            artifacts/img-to-pdf-macos/ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-macos.zip
+            artifacts/img-to-pdf-linux/ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-linux.tar.gz
+            artifacts/img-to-pdf-windows/ImageToPDF-${{ needs.version-and-release.outputs.new_version }}-windows.zip
+          draft: false
+          prerelease: false

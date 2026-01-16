@@ -69,38 +69,66 @@ img-to-pdf/
         └── build-installers.yml  # CI/CD for building installers
 ```
 
-## CI/CD
+## 🤖 Automated CI/CD
 
-This project uses GitHub Actions to automatically build installers for all platforms when code is merged to the main branch.
+This project uses **fully automated CI/CD** - just push your code and get releases automatically!
 
-### Workflow Details
+### ✨ How It Works
 
-- **Triggers**: Push to `main` or `master` branch, or manual workflow dispatch
-- **Platforms**: macOS, Linux (Ubuntu), Windows
-- **Build Tool**: PyInstaller
+Every push to `main` automatically:
+1. 📊 **Analyzes** your commit messages
+2. 🔢 **Bumps** the version (major/minor/patch)
+3. 📝 **Updates** `pyproject.toml`
+4. 🏷️ **Creates** a git tag
+5. 🏗️ **Builds** installers for macOS, Linux, and Windows
+6. 🚀 **Publishes** a GitHub Release with all installers
+
+**No manual versioning needed!** Just use proper commit messages:
+
+```bash
+git commit -m "fix: resolve crash bug"        # → Patch bump (0.0.X)
+git commit -m "feat: add new feature"         # → Minor bump (0.X.0)
+git commit -m "feat!: breaking changes"       # → Major bump (X.0.0)
+```
+
+### 📚 Documentation
+
+- **[CI_CD_GUIDE.md](CI_CD_GUIDE.md)** - Complete CI/CD guide with examples and troubleshooting
+- **[RELEASING.md](RELEASING.md)** - Manual release instructions (if needed)
+- **[BUILD_SYSTEM.md](BUILD_SYSTEM.md)** - Build system documentation
+
+### 🎯 Quick Start for Developers
+
+```bash
+# 1. Make your changes
+git add .
+
+# 2. Commit with proper format
+git commit -m "feat: add dark mode support"
+
+# 3. Push to main
+git push origin main
+
+# 4. Done! Check the Releases page in ~5 minutes
+```
+
+### 📦 Downloading Installers
+
+**From Releases:**
+1. Go to [Releases](../../releases)
+2. Download the latest version for your platform:
+   - `ImageToPDF-X.Y.Z-macos.zip` for macOS
+   - `ImageToPDF-X.Y.Z-linux.tar.gz` for Linux
+   - `ImageToPDF-X.Y.Z-windows.zip` for Windows
+
+### 🔍 Workflow Details
+
+- **Version Detection**: Conventional Commits format
+- **Platforms**: macOS (ARM64), Linux (x86_64), Windows (x86_64)
+- **Build Tool**: PyInstaller 6.18+
 - **Dependency Management**: UV
-- **Artifacts**: Automatically uploaded and available for 30 days
-
-### How It Works
-
-1. Code is merged to main branch
-2. GitHub Actions workflow triggers
-3. Three parallel jobs run (one per platform)
-4. Each job:
-   - Sets up Python 3.12
-   - Installs UV package manager
-   - Installs project dependencies
-   - Builds standalone executable with PyInstaller
-   - Packages the application (zip/tar.gz)
-   - Uploads artifacts
-
-### Downloading Build Artifacts
-
-After a successful build:
-1. Go to the [Actions](../../actions) tab
-2. Click on the latest workflow run
-3. Scroll to "Artifacts" section
-4. Download the installer for your platform
+- **Release Notes**: Auto-generated from commits
+- **Build Time**: ~5-10 minutes per release
 
 ## Usage
 

@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -99,3 +101,31 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: dist/ImageToPDF-windows.zip
           retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/img-to-pdf-macos/ImageToPDF.app.zip
+            artifacts/img-to-pdf-linux/ImageToPDF-linux.tar.gz
+            artifacts/img-to-pdf-windows/ImageToPDF-windows.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
