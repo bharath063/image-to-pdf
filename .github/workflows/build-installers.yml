@@ -1,0 +1,138 @@
+name: Build Installers
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_name: img-to-pdf-macos
+            asset_ext: .app.zip
+          - os: ubuntu-latest
+            artifact_name: img-to-pdf-linux
+            asset_ext: ""
+          - os: windows-latest
+            artifact_name: img-to-pdf-windows
+            asset_ext: .exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+        shell: bash
+        if: runner.os != 'Windows'
+
+      - name: Install UV (Windows)
+        run: |
+          irm https://astral.sh/uv/install.ps1 | iex
+        shell: powershell
+        if: runner.os == 'Windows'
+
+      - name: Add UV to PATH (Windows)
+        run: echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
+        if: runner.os == 'Windows'
+
+      - name: Add UV to PATH (Unix)
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        shell: bash
+        if: runner.os != 'Windows'
+
+      - name: Install dependencies with UV (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          uv venv
+          uv pip install -e .
+          uv pip install pyinstaller
+        shell: bash
+
+      - name: Install dependencies with UV (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          uv venv
+          uv pip install -e .
+          uv pip install pyinstaller
+        shell: powershell
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libdbus-1-3 libgl1-mesa-glx libegl1
+
+      - name: Build with PyInstaller (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          pyinstaller --clean --noconfirm ImageToPDF.spec
+        shell: bash
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\.venv\Scripts\Activate.ps1
+          pyinstaller --clean --noconfirm ImageToPDF.spec
+        shell: powershell
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r ImageToPDF.app.zip ImageToPDF.app
+          cd ..
+
+      - name: Package Linux executable
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          tar -czf ImageToPDF-linux.tar.gz ImageToPDF
+          cd ..
+
+      - name: Package Windows executable
+        if: runner.os == 'Windows'
+        run: |
+          cd dist
+          Compress-Archive -Path ImageToPDF -DestinationPath ImageToPDF-windows.zip
+          cd ..
+        shell: powershell
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/ImageToPDF.app.zip
+          retention-days: 30
+
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/ImageToPDF-linux.tar.gz
+          retention-days: 30
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/ImageToPDF-windows.zip
+          retention-days: 30
