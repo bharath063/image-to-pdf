@@ -1,6 +1,6 @@
 [project]
 name = "img-to-pdf"
-version = "0.3.1"
+version = "0.3.2"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,4 +10,4 @@ dependencies = [ "pillow>=12.1.0", "pyqt6>=6.10.2",]
 dev = [ "pyinstaller>=6.0.0",]
 
 [tool.setuptools]
-py-modules = ["main"]
+py-modules = [ "main",]
